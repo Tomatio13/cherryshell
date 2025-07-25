@@ -3,7 +3,6 @@ package shell
 import (
 	"fmt"
 	"os"
-	"os/exec"
 	"strings"
 
 	"cherrysh/i18n"
@@ -142,29 +141,78 @@ func (s *Shell) gitCommit(args []string) error {
 }
 
 func (s *Shell) gitPush(args []string) error {
-	// 外部のgitコマンドを使用
-	cmd := exec.Command("git", append([]string{"push"}, args...)...)
-	cmd.Dir = s.getCurrentDir()
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-
-	if err := cmd.Run(); err != nil {
+	repo, err := s.getRepository()
+	if err != nil {
 		return err
 	}
 
-	fmt.Println(i18n.T("git.already_up_to_date"))
+	// Push options
+	pushOptions := &git.PushOptions{}
+
+	// GitHub認証の設定
+	if s.config != nil && s.config.GitHubToken != "" {
+		pushOptions.Auth = &http.BasicAuth{
+			Username: s.config.GitHubUser,
+			Password: s.config.GitHubToken,
+		}
+	}
+
+	fmt.Println(i18n.T("git.pushing_changes"))
+
+	err = repo.Push(pushOptions)
+	if err != nil {
+		if err == git.NoErrAlreadyUpToDate {
+			fmt.Println(i18n.T("git.already_up_to_date"))
+			return nil
+		}
+		
+		// 認証エラーの場合は適切なメッセージを表示
+		if strings.Contains(err.Error(), "authentication required") {
+			return fmt.Errorf("認証が必要です。.cherryshrcにGITHUB_TOKENを設定するか、SSH鍵を使用してください: %v", err)
+		}
+		return fmt.Errorf("プッシュに失敗しました: %v", err)
+	}
+
+	fmt.Println(i18n.T("git.push_completed"))
 	return nil
 }
 
 func (s *Shell) gitPull(args []string) error {
-	// 外部のgitコマンドを使用
-	cmd := exec.Command("git", append([]string{"pull"}, args...)...)
-	cmd.Dir = s.getCurrentDir()
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-
-	if err := cmd.Run(); err != nil {
+	repo, err := s.getRepository()
+	if err != nil {
 		return err
+	}
+
+	worktree, err := repo.Worktree()
+	if err != nil {
+		return err
+	}
+
+	// Pull options
+	pullOptions := &git.PullOptions{}
+
+	// GitHub認証の設定
+	if s.config != nil && s.config.GitHubToken != "" {
+		pullOptions.Auth = &http.BasicAuth{
+			Username: s.config.GitHubUser,
+			Password: s.config.GitHubToken,
+		}
+	}
+
+	fmt.Println(i18n.T("git.pulling_changes"))
+
+	err = worktree.Pull(pullOptions)
+	if err != nil {
+		if err == git.NoErrAlreadyUpToDate {
+			fmt.Println(i18n.T("git.already_up_to_date"))
+			return nil
+		}
+		
+		// 認証エラーの場合は適切なメッセージを表示
+		if strings.Contains(err.Error(), "authentication required") {
+			return fmt.Errorf("認証が必要です。.cherryshrcにGITHUB_TOKENを設定するか、SSH鍵を使用してください: %v", err)
+		}
+		return fmt.Errorf("プルに失敗しました: %v", err)
 	}
 
 	fmt.Println(i18n.T("git.pull_completed"))
